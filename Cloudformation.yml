@@ -42,7 +42,7 @@ Parameters:
     Type: String
 
   AMIImage:
-    Default: ami-05d6882ce05cc156f
+    Default: ami-0cbf323473a28c7ff
     Type: String
     Description: Enter valid ami id
 
@@ -60,11 +60,11 @@ Parameters:
 Mappings:
   RegionMap:
     us-east-1:
-     "AMI": "ami-05d6882ce05cc156f"
+     "AMI": "ami-0cbf323473a28c7ff"
     us-east-2:
-     "AMI": "ami-05d6882ce05cc156f"
+     "AMI": "ami-0cbf323473a28c7ff"
     us-east-3:
-     "AMI": "ami-05d6882ce05cc156f"
+     "AMI": "ami-0cbf323473a28c7ff"
    
 Resources:
   VPC:
@@ -256,7 +256,7 @@ Resources:
       VpcId: !Ref VPC
 
 
-          #autosg sg 
+#autosg sg 
   WebServerGroup:
    Type: 'AWS::AutoScaling::AutoScalingGroup'
    Properties:
@@ -296,14 +296,20 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
             #!/bin/bash
-            echo export RDS="${MySqlDbInstance.Endpoint.Address}" >> /etc/profile
-            echo export SQL_ROOT="root" >> /etc/profile
-            echo export SQL_PASS="adminadmin" >> /etc/profile
-            echo export bucket="${S3bucket}" >> /etc/profile
-            echo export access_key="AKIAX6SPJCQYNQQ6RHKC" >> /etc/profile
-            echo export secret_key="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" >> /etc/profile
-            echo export DB="csye6225" >> /etc/profile
-            echo export region="us-east-1" >> /etc/profile
+            echo export HOST="${MySqlDbInstance.Endpoint.Address}" >> /etc/environment
+            echo export USER="admin" >> /etc/environment
+            echo export PASSWORD="adminadmin" >> /etc/environment
+            echo export AWS_BUCKET_NAME="${S3bucket}" >> /etc/environment
+            echo export AWS_ACCESS_KEY_ID="AKIAZ7XQYBLFMMJLH3EV" >> /etc/environment
+            echo export AWS_ACCESS_KEY_SECRET="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" >> /etc/environment
+            echo export AWS_REGION="us-east-1" >> /etc/environment
+            echo export DB="csye6225" >> /etc/environment
+            echo export DB_NAME="csye6225" >> /etc/environment
+            sleep 20
+            source /etc/environment
+            rm -rf node_modules
+            sudo npm i
+            sudo pm2 restart all --update-env
 
       #tg 
   WebServerTargetPolicy:
@@ -445,7 +451,6 @@ Resources:
                   - !Ref "AWS::StackId"
           - Ref: "ProfileName"
           - "csye6225.me"
-      AccessControl: Private
       BucketEncryption: 
         ServerSideEncryptionConfiguration: 
           - ServerSideEncryptionByDefault:
@@ -484,8 +489,8 @@ Resources:
   MySqlDbInstance:
     Type: AWS::RDS::DBInstance
     Properties:
-      DBName: csye6225AISH
-      MasterUsername: root
+      DBName: csye6225
+      MasterUsername: admin
       MasterUserPassword: adminadmin
       Engine: mysql
       EngineVersion : 8.0.28
@@ -494,114 +499,74 @@ Resources:
       StorageType: gp2
       PubliclyAccessible: False
       AllocatedStorage: "20"
-      #DBSecurityGroups: !Ref DatabaseSecurityGroup
+      VPCSecurityGroups:
+        - !Ref DatabaseSecurityGroup
       VPCSecurityGroups:
             - !GetAtt "DatabaseSecurityGroup.GroupId"
             - !Ref DatabaseSecurityGroup
-      DBInstanceIdentifier: "csye6225AISH"
+      DBInstanceIdentifier: "csye6225"
       MultiAZ: False
 
   DnsRecordSet:
-    Type: 'AWS::Route53::RecordSet'
+    Type: AWS::Route53::RecordSetGroup
     Properties:
-      Name: !Ref DNSName
-      Type: A
-      HostedZoneId: Z05484793RC3IIKAFD7IR
-      AliasTarget:
-        DNSName: !GetAtt 
-          - ApplicationLoadBalancer
-          - DNSName
-        EvaluateTargetHealth: false
-        HostedZoneId: !GetAtt 
-          - ApplicationLoadBalancer
-          - CanonicalHostedZoneID
-      
-      
-      
-
+      HostedZoneName: !Sub '${DNSName}.'
+      RecordSets:
+      - Name: !Ref DNSName
+        Type: A
+        AliasTarget:
+          HostedZoneId: !GetAtt 'ApplicationLoadBalancer.CanonicalHostedZoneID'
+          DNSName: !GetAtt 'ApplicationLoadBalancer.DNSName'
+        #DNSName: !GetAtt 
+        #  - ApplicationLoadBalancer
+        #  - DNSName
+        #EvaluateTargetHealth: false
+        #HostedZoneId: !GetAtt 
+        #  - ApplicationLoadBalancer
+        #  - CanonicalHostedZoneID
 
 
   RootRole:
-
     Type: "AWS::IAM::Role"
-
     Properties:
-
       RoleName: "EC2-CSYE6225"
-
       # Policies:
-
       #   - Ref: RolePolicies
-
       AssumeRolePolicyDocument:
-
         Version: "2012-10-17"
-
         Statement:
-
           -
-
             Effect: "Allow"
-
             Principal:
-
               Service:
-
                 - "ec2.amazonaws.com"
-
             Action:
-
               - "sts:AssumeRole"
-
       Path: "/"
 
   DemoProfile:
-
     Type: AWS::IAM::InstanceProfile
-
     Properties:
-
       InstanceProfileName: demo-ec2-instance-profile
-
       Path: /
-
       Roles:
-
        - !Ref RootRole
 
 
   RolePolicies:
-
     Type: 'AWS::IAM::Policy'
-
     Properties:
-
       PolicyName: WebAppS3
-
       PolicyDocument:
-
         Version: "2012-10-17"
-
         Statement:
-
           - Effect: Allow
-
             Action:
-
               - 's3:Put*'
-
               - 's3:Get*'
-
               - 's3:Delete*'
-
             Resource:
-
               -  !Sub arn:aws:s3:::${S3bucket}
-
               -  !Sub arn:aws:s3:::${S3bucket}/*
-
       Roles:
-
         - Ref: RootRole
-
- 
