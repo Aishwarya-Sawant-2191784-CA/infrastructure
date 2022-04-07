@@ -313,6 +313,7 @@ Resources:
             sleep 20
             source /etc/environment
             sudo pm2 restart all --update-env
+            sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/cloudwatch-config.json -s
 
       #tg 
   
@@ -666,6 +667,38 @@ Resources:
               - '*'      
       Users:
           - ghactions-app
+          
+          
+  CloudWatchAgentPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: CloudWatchAgentPolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              - cloudwatch:PutMetricData
+              - ec2:DescribeVolumes
+              - ec2:DescribeTags
+              - logs:PutLogEvents
+              - logs:DescribeLogStreams
+              - logs:DescribeLogGroups
+              - logs:CreateLogStream
+              - logs:CreateLogGroup
+            Resource:
+              - "*"
+          -
+            Effect: Allow
+            Action:
+              - ssm:GetParameter
+              - ssm:PutParameter
+            Resource:
+              - "arn:aws:ssm:*:*:parameter/AmazonCloudWatch-*"
+      Roles:
+        -
+          !Ref RootRole
 
   CodeDeployServiceRole:
     Type: AWS::IAM::Role
