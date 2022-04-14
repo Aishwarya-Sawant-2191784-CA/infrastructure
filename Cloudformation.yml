@@ -95,11 +95,11 @@ Parameters:
 
   KeyName:
     Type: String
-    Default: "testkey"
+    Default: "AWS"
 
   DNSName:
     Type: String
-    Default: "dev.csye6225a4.me."
+    Default: "csye6225a4.me."
 
   emailaddress:
     Description: email address
@@ -397,7 +397,7 @@ Resources:
                   - "/"
                   - !Ref "AWS::StackId"
           - Ref: "ProfileName"
-          - "vinitharsora.me"
+          - "csye6225a4.me"
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -966,6 +966,7 @@ Resources:
         - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
         - arn:aws:iam::aws:policy/AmazonS3FullAccess 
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
         
   DynamoDBPolicy:
     Type: AWS::IAM::Policy
