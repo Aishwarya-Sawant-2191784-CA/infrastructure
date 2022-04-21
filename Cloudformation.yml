@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "Assignment 9: Cloudformation Stack Template"
+Description: "Cloudformation Stack Template"
 Parameters:
   VpcCidrBlock:
     Description: "CIDR Block for VPC"
@@ -105,6 +105,11 @@ Parameters:
     Description: email address
     Type: String
     Default: "sawant.ais@northeastern.edu"
+
+  CertificateARN:
+    Description: The ARN for the first certificate
+    Type: String
+    Default: arn:aws:acm:us-east-1:155431625085:certificate/5540f8ec-e8d8-4057-9940-af09fcd446c5
 
 Resources:
   VPC:
@@ -444,7 +449,7 @@ Resources:
       Engine: MySQL
       EngineVersion: 8.0.27
       MasterUsername: csye6225
-      MasterUserPassword: csye6225Spring2022
+      MasterUserPassword: adminadmin
       PubliclyAccessible: false
       VPCSecurityGroups:
         - !Ref DBSecurityGroup
@@ -452,6 +457,8 @@ Resources:
         Ref: DBSubnetGroup
       DBParameterGroupName:
         Ref: RDSDBParameterGroup
+      StorageEncrypted: true
+      KmsKeyId: !GetAtt RdsKmsKey.Arn
 
   WebAppS3Policy:
     Type: 'AWS::IAM::Policy'
@@ -492,29 +499,35 @@ Resources:
       Roles: 
         - Ref: IAMRole
 
-  LaunchConfig:
-    Type: AWS::AutoScaling::LaunchConfiguration
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
     Properties:
-      ImageId: !Ref AmiID
-      IamInstanceProfile: !Ref IAMInstanceProfile
-      InstanceType: !Ref InstanceType
-      KeyName: !Ref KeyName
-      BlockDeviceMappings: 
-      - DeviceName: "/dev/sdm"
-        Ebs: 
-          VolumeType: "gp2"
-          DeleteOnTermination: "true"
-          VolumeSize: "20"
-      AssociatePublicIpAddress: "true"
-      SecurityGroups:
-      - !Ref ApplicationSecurityGroup
-      UserData: 
-        Fn::Base64: 
+      LaunchTemplateName: LaunchTemplate
+      LaunchTemplateData:
+        IamInstanceProfile:
+          Arn: !GetAtt
+            - IAMInstanceProfile
+            - Arn
+        ImageId: !Ref AmiID
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        SecurityGroupIds:
+          - !Ref ApplicationSecurityGroup
+        BlockDeviceMappings:
+          - DeviceName: "/dev/xvda"
+            Ebs:
+              VolumeSize: 60
+              VolumeType: "gp2"
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: !GetAtt EBSKmsKey.Arn
+        UserData: 
+          Fn::Base64: 
             !Sub |
               #!/bin/bash
               echo export DB_HOST="${RDS.Endpoint.Address}" >> /etc/environment
               echo export DB_USER="csye6225" >> /etc/environment
-              echo export DB_PASSWORD="csye6225Spring2022" >> /etc/environment
+              echo export DB_PASSWORD="adminadmin" >> /etc/environment
               echo export DB_NAME="csye6225" >> /etc/environment
               echo export AWS_BUCKET_NAME="${S3Bucket}" >> /etc/environment
               echo export AWS_REGION="us-east-1" >> /etc/environment
@@ -524,18 +537,6 @@ Resources:
               rm -rf node_modules
               sudo npm i
               sudo pm2 restart all --update-env
-      LaunchConfigurationName: !Join
-        - "."
-        - - !Select
-            - 0
-            - !Split
-              - "-"
-              - !Select
-                - 2
-                - !Split
-                  - "/"
-                  - !Ref "AWS::StackId"
-          - "asg_launch_config"
 
   AutoscalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -543,7 +544,9 @@ Resources:
       MinSize: '1'
       MaxSize: '5'
       DesiredCapacity: '1'
-      LaunchConfigurationName: !Ref LaunchConfig
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
       VPCZoneIdentifier:
       - !Ref PublicSubnet1
       - !Ref PublicSubnet2
@@ -644,8 +647,11 @@ Resources:
         - Type: forward
           TargetGroupArn: !Ref TargetGroup
       LoadBalancerArn: !Ref LoadBalancer
-      Port: 80
-      Protocol: HTTP
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn:
+            Ref: CertificateARN
 
   DNSRecord:
     Type: AWS::Route53::RecordSetGroup
@@ -966,7 +972,6 @@ Resources:
         - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
         - arn:aws:iam::aws:policy/AmazonS3FullAccess 
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
         
   DynamoDBPolicy:
     Type: AWS::IAM::Policy
@@ -1000,3 +1005,148 @@ Resources:
               - !GetAtt DynamodbTable.Arn
       Roles:
         - !Ref IAMRole
+
+  EBSKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: 'KMS Key for EBS'
+      KeyPolicy:
+        Id: "kms-key-for-ebs"
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: 
+                - !Join ["",["arn:aws:iam::",!Ref "AWS::AccountId",":root"],]
+                - !Join ["",["arn:aws:iam::",!Ref "AWS::AccountId",":role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling",],]
+            Action: kms:*
+            Resource: '*'
+          - Sid: Allow access for Key Administrators
+            Effect: Allow
+            Principal:
+              AWS: 
+                - !Join ["",["arn:aws:iam::",!Ref "AWS::AccountId",":role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling",],]
+            Action:
+              - kms:Create*
+              - kms:Describe*
+              - kms:Enable*
+              - kms:List*
+              - kms:Put*
+              - kms:Update*
+              - kms:Revoke*
+              - kms:Disable*
+              - kms:Get*
+              - kms:Delete*
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+            Resource: '*'
+          - Sid: Allow use of the key
+            Effect: Allow
+            Principal:
+              AWS: 
+                - !Join ["",["arn:aws:iam::",!Ref "AWS::AccountId",":role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling",],]
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: '*'
+          - Sid: Allow attachment of persistent resources
+            Effect: Allow
+            Principal:
+              AWS: 
+                - !Join ["",["arn:aws:iam::",!Ref "AWS::AccountId",":role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling",],]
+            Action:
+              - kms:CreateGrant
+              - kms:ListGrants
+              - kms:RevokeGrant
+            Resource: '*'
+
+  EBSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/ebsKey
+      TargetKeyId:
+        Ref: EBSKmsKey
+
+  RdsKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: 'KMS Key for RDS'
+      KeyPolicy:
+        Id: "kms-key-for-rds"
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Join
+                - ''
+                - - 'arn:aws:iam::'
+                  - !Ref 'AWS::AccountId'
+                  - ':root'
+            Action: kms:*
+            Resource: '*'
+          - Sid: Allow access for Key Administrators
+            Effect: Allow
+            Principal:
+              AWS: !Join
+                - ''
+                - - 'arn:aws:iam::'
+                  - !Ref 'AWS::AccountId'
+                  - ':role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS'
+            Action:
+              - kms:Create*
+              - kms:Describe*
+              - kms:Enable*
+              - kms:List*
+              - kms:Put*
+              - kms:Update*
+              - kms:Revoke*
+              - kms:Disable*
+              - kms:Get*
+              - kms:Delete*
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+            Resource: '*'
+          - Sid: Allow use of the key
+            Effect: Allow
+            Principal:
+              AWS: !Join
+                - ''
+                - - 'arn:aws:iam::'
+                  - !Ref 'AWS::AccountId'
+                  - ':role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS'
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: '*'
+          - Sid: Allow attachment of persistent resources
+            Effect: Allow
+            Principal:
+              AWS: !Join
+                - ''
+                - - 'arn:aws:iam::'
+                  - !Ref 'AWS::AccountId'
+                  - ':role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS'
+            Action:
+              - kms:CreateGrant
+              - kms:ListGrants
+              - kms:RevokeGrant
+            Resource: '*'
+
+  RDSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/rdsKey
+      TargetKeyId:
+        Ref: RdsKmsKey
